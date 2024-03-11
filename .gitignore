@@ -40,3 +40,10 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# Open Telemetry
+/otel/.jaeger/
+/otel/.prometheus/
+
+# JetBrains
+.idea

@@ -6,11 +6,11 @@
  * TL;DR - This is where all the tRPC server stuff is created and plugged in. The pieces you will
  * need to use are documented accordingly near the end.
  */
-import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
+import { type Span, trace } from "@opentelemetry/api";
 import { ZodError } from "zod";
-
 import { db } from "~/server/db";
+import { experimental_standaloneMiddleware, initTRPC } from "@trpc/server";
 
 /**
  * 1. CONTEXT
@@ -66,6 +66,7 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
  */
 export const createTRPCRouter = t.router;
 
+const tracer = trace.getTracer("trpc");
 /**
  * Public (unauthenticated) procedure
  *
@@ -73,4 +74,39 @@ export const createTRPCRouter = t.router;
  * guarantee that a user querying is authorized, but you can still access user session data if they
  * are logged in.
  */
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(
+  experimental_standaloneMiddleware().create((opts) =>
+    tracer.startActiveSpan(
+      `api/trpc/${opts.type}/${opts.path}`,
+      async (span: Span) => {
+        const result = await opts.next();
+        const output = "data" in result ? result.data : result;
+        console.log(
+          `api/trpc/${opts.type}/${opts.path}`,
+          JSON.stringify(
+            {
+              input: opts.input ? JSON.stringify(opts.input) : "undefined",
+              meta: opts.meta ? JSON.stringify(opts.meta) : "undefined",
+              ok: result.ok,
+              output: output ? JSON.stringify(output) : "undefined",
+              path: opts.path,
+              type: opts.type,
+            },
+            null,
+            2,
+          ),
+        );
+        span.setAttributes({
+          input: opts.input ? JSON.stringify(opts.input) : "undefined",
+          meta: opts.meta ? JSON.stringify(opts.meta) : "undefined",
+          ok: result.ok,
+          output: output ? JSON.stringify(output) : "undefined",
+          path: opts.path,
+          type: opts.type,
+        });
+        span.end();
+        return result;
+      },
+    ),
+  ),
+);
